@@ -97,6 +97,8 @@ class Look:
     shirt_text: str = ""
     stain: float = 0.0       # 0..1 coffee stain size
     glasses: bool = False
+    mustache: bool = False
+    shirt_len: float = 0.0   # extra length below the hip (kurta), in units of H
     extras: dict = field(default_factory=dict)
 
 
@@ -164,8 +166,8 @@ def draw(ctx, x, ground, H, pose: Pose, face: Face, look: Look = Look(), facing=
         ctx.set_source_rgb(*look.shirt)
         top_l = (shj[0] - w, shj[1] + H * 0.01)
         top_r = (shj[0] + w, shj[1] + H * 0.01)
-        bot_l = (hipj[0] - w * 0.82, hipj[1] + H * 0.02)
-        bot_r = (hipj[0] + w * 0.82, hipj[1] + H * 0.02)
+        bot_l = (hipj[0] - w * (0.82 + look.shirt_len * 2), hipj[1] + H * (0.02 + look.shirt_len))
+        bot_r = (hipj[0] + w * (0.82 + look.shirt_len * 2), hipj[1] + H * (0.02 + look.shirt_len))
         ctx.move_to(*top_l)
         ctx.line_to(*top_r)
         ctx.line_to(*bot_r)
@@ -278,7 +280,7 @@ def _face(ctx, c, r, face: Face, look, lw, f, frame, ident):
     oy = r * 0.18 * face.look[1]
     ex = r * 0.32
     ey = y - r * 0.12 + oy
-    blink = (frame + ident * 37) % 97 < 4  # deterministic blinks
+    blink = (frame + zlib.crc32(str(ident).encode()) % 97) % 97 < 4  # deterministic blinks
     eyes = "closed" if (blink and face.eyes in ("dot", "wide")) else face.eyes
     ctx.save()
     ctx.set_source_rgb(*look.color)
@@ -346,6 +348,15 @@ def _face(ctx, c, r, face: Face, look, lw, f, frame, ident):
         for k in range(1, 7):
             ctx.line_to(mx - r * 0.25 + k * r * 0.5 / 6, my + (r * 0.06 if k % 2 else -r * 0.06))
         ctx.stroke()
+    if look.mustache:
+        ctx.set_source_rgb(*look.color)
+        for s_ in (-1, 1):
+            ctx.save()
+            ctx.translate(mx + s_ * r * 0.17, my - r * 0.13)
+            ctx.scale(r * 0.2, r * 0.08)
+            ctx.arc(0, 0, 1, 0, 2 * math.pi)
+            ctx.restore()
+            ctx.fill()
     if face.blush:
         ctx.set_source_rgba(0.95, 0.35, 0.35, 0.45)
         for s in (-1, 1):

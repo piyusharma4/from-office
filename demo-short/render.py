@@ -3,6 +3,7 @@
 Every frame is draw(frame_number): no clocks, no randomness, so the video can be
 rendered in parallel chunks and any frame can be re-rendered on its own.
 
+    python render.py --voice      # narration -> build/voice.wav + build/timeline.json
     python render.py              # full render (parallel)
     python render.py --still 120  # write one PNG for checking a frame
 """
@@ -11,13 +12,15 @@ import json
 import math
 import os
 import subprocess
+import sys
 from multiprocessing import Pool
 
 import cairo
 import numpy as np
 
-import audio
-import stickman as S
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "engine"))
+import audio  # noqa: E402
+import stickman as S  # noqa: E402
 from stickman import Face, Look, POSES, ease, ease_out_back, mix, walk
 
 W, H = 1080, 1920
@@ -33,6 +36,11 @@ YELLOW = (1.0, 0.82, 0.25)
 RED = (0.88, 0.27, 0.27)
 PINK = (0.86, 0.32, 0.56)
 GROUND = 1180
+
+if "--voice" in sys.argv:
+    import script
+    audio.make_voice(script.LINES, script.VOICE, script.SPEED, script.LEAD_IN, BUILD)
+    sys.exit(0)
 
 TL = json.load(open(os.path.join(BUILD, "timeline.json")))
 LINES = TL["lines"]
@@ -751,7 +759,7 @@ def main():
     with open(lst, "w") as f:
         f.writelines(f"file '{p}'\n" for p in paths)
     mixwav = os.path.join(BUILD, "mix.wav")
-    audio.mix(sfx_cues(), mixwav)
+    audio.mix(os.path.join(BUILD, "voice.wav"), sfx_cues(), mixwav)
     out = os.path.join(OUT, "spotlight-effect.mp4")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lst, "-i", mixwav,
                     "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",

@@ -1,23 +1,17 @@
-"""Voice, music and sound effects for the demo short.
+"""Voice, music and sound effects shared by every video.
 
-Step 1 (`python audio.py voice`): Kokoro TTS per line -> build/voice.wav and
-build/timeline.json (line start/end and estimated per-word times for captions).
-Step 2 (`mix`, called by render.py): procedural music bed + SFX cues + voice,
-with the music ducked under speech.
+make_voice(): Kokoro TTS per line -> <build>/voice.wav and <build>/timeline.json
+(line start/end and estimated per-word times for captions).
+mix(): procedural music bed + SFX cues + voice, with the music ducked under speech.
 """
 import json
 import os
-import sys
 
 import numpy as np
 import soundfile as sf
 
-import script
-
 SR = 24000
-HERE = os.path.dirname(os.path.abspath(__file__))
-BUILD = os.path.join(HERE, "build")
-MODELS = os.path.join(HERE, "assets", "models")
+MODELS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 
 
 def trim_silence(x, thresh=0.01):
@@ -37,16 +31,19 @@ def word_times(text, t0, t1):
     return [{"w": w, "s": float(edges[i]), "e": float(edges[i + 1])} for i, w in enumerate(words)]
 
 
-def make_voice():
+def make_voice(script_lines, voice_name, speed, lead_in, build, extra=None):
+    """script_lines: [(scene, text, pause_after[, spoken_text])]. `extra` maps line index -> dict merged into the timeline entry."""
     from kokoro_onnx import Kokoro
 
-    os.makedirs(BUILD, exist_ok=True)
+    os.makedirs(build, exist_ok=True)
     k = Kokoro(os.path.join(MODELS, "kokoro-v1.0.onnx"), os.path.join(MODELS, "voices-v1.0.bin"))
-    pieces = [np.zeros(int(script.LEAD_IN * SR), dtype=np.float32)]
-    t = script.LEAD_IN
+    pieces = [np.zeros(int(lead_in * SR), dtype=np.float32)]
+    t = lead_in
     lines = []
-    for scene, text, pause in script.LINES:
-        samples, sr = k.create(text, voice=script.VOICE, speed=script.SPEED, lang="en-us")
+    for entry in script_lines:
+        scene, text, pause = entry[:3]
+        say = entry[3] if len(entry) > 3 else text  # optional phonetic spelling for TTS
+        samples, sr = k.create(say, voice=voice_name, speed=speed, lang="en-us")
         assert sr == SR
         a, b = trim_silence(samples)
         clip = samples[a:b].astype(np.float32)
@@ -57,8 +54,10 @@ def make_voice():
         t += dur + pause
         print(f"  {scene:9s} {dur:5.2f}s  {text}")
     voice = np.concatenate(pieces)
-    sf.write(os.path.join(BUILD, "voice.wav"), voice, SR)
-    with open(os.path.join(BUILD, "timeline.json"), "w") as f:
+    for i, extra_info in (extra or {}).items():
+        lines[i].update(extra_info)
+    sf.write(os.path.join(build, "voice.wav"), voice, SR)
+    with open(os.path.join(build, "timeline.json"), "w") as f:
         json.dump({"duration": len(voice) / SR, "lines": lines}, f, indent=1)
     print(f"voice: {len(voice) / SR:.2f}s")
 
@@ -146,9 +145,9 @@ def sfx(kind):
     raise ValueError(kind)
 
 
-def mix(cues, out_path):
+def mix(voice_path, cues, out_path, music_gain=0.55):
     """cues: list of (time_seconds, sfx_kind)."""
-    voice, sr = sf.read(os.path.join(BUILD, "voice.wav"))
+    voice, sr = sf.read(voice_path)
     total = len(voice) / SR + 0.6
     n = int(total * SR)
     v = np.zeros(n)
@@ -161,7 +160,7 @@ def mix(cues, out_path):
     fade = np.ones(n)
     fade[: SR // 2] = np.linspace(0, 1, SR // 2)
     fade[-SR:] = np.linspace(1, 0, SR)
-    out = v + 0.55 * m * duck * fade
+    out = v + music_gain * m * duck * fade
     for t, kind in cues:
         s = sfx(kind)
         i = int(t * SR)
@@ -171,7 +170,3 @@ def mix(cues, out_path):
     sf.write(out_path, out.astype(np.float32), SR)
     return total
 
-
-if __name__ == "__main__":
-    if sys.argv[1:] == ["voice"]:
-        make_voice()
